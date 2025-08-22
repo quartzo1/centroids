@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Centroid Playground</title>
+  <style>
+    :root {
+      --bg1: #0b1020;
+      --bg2: #111827;
+      --panel: rgba(255, 255, 255, 0.86);
+      --accent: #2563eb; /* blue-600 */
+      --centroid: #ef4444; /* red-500 */
+      --line: #94a3b8; /* slate-400 */
+      --point: #60a5fa; /* blue-400 */
+    }
+    html, body { height: 100%; margin: 0; }
+    body {
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Noto Sans";
+      background: linear-gradient(180deg, var(--bg1), var(--bg2));
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      user-select: none;
+    }
+    #canvas { width: 100vw; height: 100vh; display: block; cursor: crosshair; }
+
+    .hud {
+      position: fixed; top: 12px; right: 12px;
+      background: var(--panel);
+      border-radius: 12px; padding: 12px; max-width: min(92vw, 380px);
+      box-shadow: 0 10px 30px rgba(0,0,0,.25); backdrop-filter: blur(6px);
+    }
+    .hud h1 { margin: 0 0 8px; font-size: 16px; font-weight: 700; color: #111827; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 6px 0; }
+    button {
+      border: 0; border-radius: 10px; padding: 8px 10px; font-weight: 600; cursor: pointer; background: #f3f4f6;
+      transition: transform .05s ease, filter .1s ease; will-change: transform;
+    }
+    button:active { transform: translateY(1px); filter: brightness(.98); }
+    button.primary { background: var(--accent); color: #fff; }
+    button.toggled { outline: 2px solid var(--accent); }
+    label { font-size: 12px; color: #374151; }
+    input[type=range] { width: 160px; }
+    .hint { font-size: 12px; color: #4b5563; line-height: 1.35; }
+    .pill { display:inline-block; font-size:11px; background:#e5e7eb; padding:2px 6px; border-radius:999px; }
+    .footer { font-size: 11px; color:#6b7280; margin-top:6px; }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+
+  <div class="hud" id="hud">
+    <h1>Centroid Playground</h1>
+    <div class="row">
+      <label>Points: <b id="countLabel"></b></label>
+      <input id="count" type="range" min="3" max="200" value="20" />
+      <button id="random" class="primary" title="Randomize (R)">Randomize</button>
+    </div>
+    <div class="row">
+      <button id="add" title="Click canvas to add points">Add</button>
+      <button id="del" title="Click a point to delete it">Delete</button>
+      <button id="clear" title="Remove all points">Clear</button>
+    </div>
+    <div class="hint">
+      Drag any point to move it. Click <span class="pill">Add</span> to add by clicking the canvas, or <span class="pill">Delete</span> to remove by clicking a point. Press <span class="pill">R</span> to randomize.
+    </div>
+    <div class="footer">All points are connected to the centroid; the centroid updates in real time.</div>
+  </div>
+
+  <script>
+  (() => {
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const dpr = () => window.devicePixelRatio || 1;
+
+    let points = [];
+    const pointRadius = 5; // CSS pixels (logical units)
+    let draggingIndex = -1;
+    let mode = 'move'; // 'move' | 'add' | 'delete'
+
+    const els = {
+      count: document.getElementById('count'),
+      countLabel: document.getElementById('countLabel'),
+      random: document.getElementById('random'),
+      add: document.getElementById('add'),
+      del: document.getElementById('del'),
+      clear: document.getElementById('clear')
+    };
+
+    function resize() {
+      const ratio = dpr();
+      canvas.width = Math.round(canvas.clientWidth * ratio);
+      canvas.height = Math.round(canvas.clientHeight * ratio);
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0); // work in CSS pixel coords
+      draw();
+    }
+
+    function rand(min, max) { return Math.random() * (max - min) + min; }
+
+    function randomize(n = +els.count.value || 20) {
+      points = [];
+      const pad = 30;
+      const w = canvas.clientWidth, h = canvas.clientHeight;
+      for (let i = 0; i < n; i++) {
+        points.push({ x: rand(pad, w - pad), y: rand(pad, h - pad) });
+      }
+      draw();
+    }
+
+    function computeCentroid(pts) {
+      const n = pts.length;
+      if (!n) return null;
+      let sx = 0, sy = 0;
+      for (let i = 0; i < n; i++) { sx += pts[i].x; sy += pts[i].y; }
+      return { x: sx / n, y: sy / n };
+    }
+
+    function draw() {
+      const w = canvas.clientWidth, h = canvas.clientHeight;
+      ctx.clearRect(0, 0, w, h);
+
+      // Soft grid for orientation
+      ctx.save();
+      ctx.globalAlpha = 0.08;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1;
+      const step = 40;
+      for (let x = 0; x < w; x += step) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
+      for (let y = 0; y < h; y += step) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
+      ctx.restore();
+
+      const c = computeCentroid(points);
+      if (c) {
+        // Star-lines from points to centroid
+        ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--line').trim() || '#94a3b8';
+        ctx.lineWidth = 1.25;
+        ctx.beginPath();
+        for (const p of points) { ctx.moveTo(p.x, p.y); ctx.lineTo(c.x, c.y); }
+        ctx.stroke();
+
+        // Centroid marker
+        ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--centroid').trim() || '#ef4444';
+        ctx.beginPath(); ctx.arc(c.x, c.y, 7, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = 'white'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(c.x, c.y, 7, 0, Math.PI * 2); ctx.stroke();
+
+        // Label
+        ctx.font = '12px ui-sans-serif, system-ui, -apple-system, Segoe UI';
+        ctx.fillStyle = 'rgba(255,255,255,0.9)';
+        const label = `centroid (${c.x.toFixed(1)}, ${c.y.toFixed(1)})`;
+        ctx.fillText(label, c.x + 10, c.y - 10);
+      }
+
+      // Points
+      for (let i = 0; i < points.length; i++) {
+        const p = points[i];
+        ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--point').trim() || '#60a5fa';
+        ctx.beginPath(); ctx.arc(p.x, p.y, pointRadius, 0, Math.PI * 2); ctx.fill();
+
+        // Outline
+        ctx.strokeStyle = '#0b1020'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(p.x, p.y, pointRadius, 0, Math.PI * 2); ctx.stroke();
+      }
+
+      els.countLabel.textContent = points.length;
+    }
+
+    function getPos(evt) {
+      const rect = canvas.getBoundingClientRect();
+      const x = (evt.clientX - rect.left);
+      const y = (evt.clientY - rect.top);
+      return { x, y };
+    }
+
+    function hitIndex(pos, radius = pointRadius + 4) {
+      for (let i = points.length - 1; i >= 0; i--) {
+        const p = points[i];
+        const dx = p.x - pos.x, dy = p.y - pos.y;
+        if (dx * dx + dy * dy <= radius * radius) return i;
+      }
+      return -1;
+    }
+
+    // Interactions
+    canvas.addEventListener('pointerdown', (e) => {
+      const pos = getPos(e);
+      if (mode === 'add') {
+        points.push(pos);
+        draw();
+        return;
+      }
+      if (mode === 'delete') {
+        const idx = hitIndex(pos);
+        if (idx >= 0) { points.splice(idx, 1); draw(); }
+        return;
+      }
+      const idx = hitIndex(pos);
+      if (idx >= 0) {
+        draggingIndex = idx;
+        canvas.setPointerCapture(e.pointerId);
+      }
+    });
+
+    canvas.addEventListener('pointermove', (e) => {
+      if (draggingIndex >= 0) {
+        const pos = getPos(e);
+        points[draggingIndex] = pos;
+        draw();
+      }
+    });
+
+    function endDrag(e) {
+      if (draggingIndex >= 0) {
+        draggingIndex = -1;
+        canvas.releasePointerCapture?.(e.pointerId);
+      }
+    }
+    canvas.addEventListener('pointerup', endDrag);
+    canvas.addEventListener('pointercancel', endDrag);
+    canvas.addEventListener('pointerleave', endDrag);
+
+    // Controls
+    els.random.addEventListener('click', () => { randomize(); });
+    els.clear.addEventListener('click', () => { points = []; draw(); });
+
+    els.add.addEventListener('click', () => {
+      mode = mode === 'add' ? 'move' : 'add';
+      updateModeButtons();
+    });
+    els.del.addEventListener('click', () => {
+      mode = mode === 'delete' ? 'move' : 'delete';
+      updateModeButtons();
+    });
+
+    function updateModeButtons() {
+      for (const btn of [els.add, els.del]) btn.classList.remove('toggled');
+      if (mode === 'add') els.add.classList.add('toggled');
+      else if (mode === 'delete') els.del.classList.add('toggled');
+    }
+
+    els.count.addEventListener('input', () => {
+      els.countLabel.textContent = els.count.value; // live display
+    });
+    els.count.addEventListener('change', () => {
+      randomize(+els.count.value);
+    });
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key.toLowerCase() === 'r') randomize();
+    });
+
+    // Init
+    function init() {
+      resize();
+      randomize(+els.count.value);
+    }
+    window.addEventListener('resize', resize);
+    window.addEventListener('load', init);
+  })();
+  </script>
+</body>
+</html>
