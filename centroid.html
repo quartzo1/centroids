@@ -161,6 +161,11 @@
         // Outline
         ctx.strokeStyle = '#0b1020'; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.arc(p.x, p.y, pointRadius, 0, Math.PI * 2); ctx.stroke();
+    // Position label for each point
+    ctx.font = '12px ui-sans-serif, system-ui, -apple-system, Segoe UI';
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    const posLabel = `(${Math.round(p.x)}, ${Math.round(p.y)})`;
+    ctx.fillText(posLabel, p.x + 10, p.y - 10);
       }
 
       els.countLabel.textContent = points.length;
